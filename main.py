@@ -1,7 +1,13 @@
 import chess
 import engine
 
-LEVELS = {1: "Débutant (aléatoire)", 2: "Intermédiaire (matériel)", 3: "Avancé (positionnel)"}
+LEVELS = {
+    1: "Débutant    – coups aléatoires",
+    2: "Novice      – matériel, prof. 2",
+    3: "Facile      – matériel + positions, prof. 3",
+    4: "Intermédiaire – structure + quiescence, prof. 4",
+    5: "Fort        – tout + transpositions, prof. 5",
+}
 
 
 def _print_board(board: chess.Board, player_color: chess.Color) -> None:

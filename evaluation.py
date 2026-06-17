@@ -74,12 +74,12 @@ _PST_KING = [
 # fmt: on
 
 _PST = {
-    chess.PAWN: _PST_PAWN,
+    chess.PAWN:   _PST_PAWN,
     chess.KNIGHT: _PST_KNIGHT,
     chess.BISHOP: _PST_BISHOP,
-    chess.ROOK: _PST_ROOK,
-    chess.QUEEN: _PST_QUEEN,
-    chess.KING: _PST_KING,
+    chess.ROOK:   _PST_ROOK,
+    chess.QUEEN:  _PST_QUEEN,
+    chess.KING:   _PST_KING,
 }
 
 
@@ -90,13 +90,41 @@ def _pst_score(piece_type: int, square: int, color: chess.Color) -> int:
     return _PST[piece_type][idx]
 
 
+def _pawn_structure(board: chess.Board) -> int:
+    """
+    Pénalités de structure de pions (niveau 4+), du point de vue des Blancs.
+
+    - Pions doublés : -20 par pion supplémentaire sur la même colonne.
+    - Pions isolés  : -15 par pion sans voisin sur les colonnes adjacentes.
+    """
+    score = 0
+    for color, sign in ((chess.WHITE, 1), (chess.BLACK, -1)):
+        pawns = list(board.pieces(chess.PAWN, color))
+        files  = [chess.square_file(sq) for sq in pawns]
+
+        for f in range(8):
+            count = files.count(f)
+            if count > 1:
+                score -= sign * 20 * (count - 1)   # pions doublés
+
+        for sq in pawns:
+            f = chess.square_file(sq)
+            voisin = any(chess.square_file(p) in (f - 1, f + 1) for p in pawns if p != sq)
+            if not voisin:
+                score -= sign * 15                  # pion isolé
+
+    return score
+
+
 def evaluate(board: chess.Board, level: int) -> int:
     """
     Évaluation statique de *board* en centipions, du point de vue des Blancs.
 
-    niveau 1 → toujours 0   (coups aléatoires)
-    niveau 2 → matériel brut uniquement
-    niveau 3 → matériel + tables de positions
+    niveau 1 → toujours 0              (coups aléatoires)
+    niveau 2 → matériel brut
+    niveau 3 → matériel + PST
+    niveau 4 → matériel + PST + structure de pions
+    niveau 5 → identique au niveau 4 (la force vient de l'algorithme)
     """
     if level == 1:
         return 0
@@ -107,5 +135,8 @@ def evaluate(board: chess.Board, level: int) -> int:
         if level >= 3:
             value += _pst_score(piece.piece_type, square, piece.color)
         score += value if piece.color == chess.WHITE else -value
+
+    if level >= 4:
+        score += _pawn_structure(board)
 
     return score

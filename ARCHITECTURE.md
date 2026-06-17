@@ -31,19 +31,25 @@ définissent les niveaux de jeu.
 La fonction centrale `evaluate(board, level)` retourne un score en **centipions**
 (1 pion = 100 pts) du point de vue des Blancs :
 
-| Niveau | Stratégie |
-|--------|-----------|
-| 1 (Débutant) | Score = 0 pour toutes les positions → coups aléatoires |
-| 2 (Intermédiaire) | Décompte matériel brut (valeur des pièces) |
-| 3 (Avancé) | Matériel + tables de positions (piece-square tables) |
+| Niveau | Fonctionnalités d'évaluation |
+|--------|------------------------------|
+| 1 | Score = 0 → coups aléatoires |
+| 2 | Décompte matériel brut |
+| 3 | Matériel + tables de positions (PST) |
+| 4 | Matériel + PST + structure de pions |
+| 5 | Identique niveau 4 (force = algorithme) |
 
 **Valeurs des pièces (centipions) :**
 ```
 Pion=100  Cavalier=320  Fou=330  Tour=500  Dame=900  Roi=20000
 ```
 
-Les **piece-square tables** (niveau 3) sont des matrices 8×8 qui donnent un
+Les **piece-square tables** (niveau 3+) sont des matrices 8×8 qui donnent un
 bonus/malus selon la case occupée par une pièce (ex : cavalier au centre = bonus).
+
+La **structure de pions** (niveau 4+) ajoute :
+- Pénalité pions doublés : -20 centipions par pion supplémentaire sur la même colonne.
+- Pénalité pions isolés  : -15 centipions par pion sans voisin sur les colonnes adjacentes.
 
 ---
 
@@ -54,24 +60,41 @@ Isoler la recherche permet de brancher n'importe quelle fonction d'évaluation
 sans changer le moteur de recherche lui-même.
 
 **Comment ?**
-Algorithme **Minimax avec élagage Alpha-Bêta** :
+Algorithme **Negamax avec élagage Alpha-Bêta** :
 
 ```
-Minimax(position, profondeur, alpha, bêta, joueur_maximise)
-  ├── Si profondeur = 0 ou partie terminée → evaluate()
-  ├── Si joueur_maximise → cherche le score maximum
-  └── Sinon             → cherche le score minimum
+Negamax(position, profondeur, α, β)
+  ├── Si feuille → quiescence(α, β)   [niveaux 4-5]  ou evaluate()
+  └── best = max sur coups de  -Negamax(enfant, prof-1, -β, -α)
 ```
 
-- **Alpha-Bêta** : élagage des branches impossibles à améliorer, réduit
-  l'arbre de recherche de O(b^d) à O(b^(d/2)) dans le meilleur cas.
-- La **profondeur** (paramètre `depth`) est fixée par niveau dans `main.py`.
+Negamax est une simplification de Minimax : le score est toujours du point
+de vue du joueur actif, donc `score_parent = -score_enfant`. Cela évite
+d'avoir deux branches max/min séparées.
 
-| Niveau | Profondeur | Comportement |
-|--------|-----------|--------------|
-| 1 | — | Coup aléatoire (pas de Minimax) |
-| 2 | 2 | Minimax 2 demi-coups, éval. matérielle |
-| 3 | 3 | Minimax 3 demi-coups, éval. positionnelle |
+**Fonctionnalités cumulatives par niveau :**
+
+| Niveau | Prof. | Évaluation | Tri des coups | Quiescence | Table de transposition |
+|--------|-------|-----------|--------------|-----------|----------------------|
+| 1 | — | aucune | — | — | — |
+| 2 | 2 | matériel | — | — | — |
+| 3 | 3 | matériel + PST | — | — | — |
+| 4 | 4 | matériel + PST + structure | MVV-LVA | ✓ | — |
+| 5 | 5 | idem niveau 4 | MVV-LVA | ✓ | ✓ |
+
+**Tri des coups (MVV-LVA)** — *Most Valuable Victim, Least Valuable Attacker* :
+on examine d'abord les captures de pièces précieuses par des pièces bon marché.
+Ça maximise les coupures alpha-bêta et permet d'explorer quasi deux fois plus profond.
+
+**Quiescence search** : quand on atteint la profondeur 0, au lieu d'évaluer
+immédiatement, on continue à explorer uniquement les captures jusqu'à une
+position « calme ». Sans ça, le moteur peut croire qu'une position est bonne
+juste avant que l'adversaire prenne une pièce (effet d'horizon).
+
+**Table de transposition (TT)** : dictionnaire `{hash_zobrist → (profondeur, score, flag)}`.
+Quand une position a déjà été évaluée à une profondeur ≥ actuelle, on réutilise
+le résultat au lieu de re-chercher. Les flags indiquent si le score est exact,
+une borne inférieure (coupure bêta) ou supérieure (échec du nœud).
 
 ---
 

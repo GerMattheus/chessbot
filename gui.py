@@ -185,8 +185,13 @@ def main() -> None:
             break  # fonte valide trouvée
 
     # Menus de démarrage
-    niveau      = choisir(ecran, "Choisissez un niveau :",
-                          ["Débutant (aléatoire)", "Intermédiaire (matériel)", "Avancé (positionnel)"])
+    niveau      = choisir(ecran, "Choisissez un niveau :", [
+        "1 – Débutant    (aléatoire)",
+        "2 – Novice      (matériel, prof. 2)",
+        "3 – Facile      (positions, prof. 3)",
+        "4 – Intermédiaire (quiescence, prof. 4)",
+        "5 – Fort        (transpositions, prof. 5)",
+    ])
     couleur_idx = choisir(ecran, "Jouez avec quelle couleur ?", ["Blancs", "Noirs"])
     joueur_color = chess.WHITE if couleur_idx == 1 else chess.BLACK
 
@@ -225,9 +230,9 @@ def main() -> None:
                     # Deuxième clic : tente de jouer le coup
                     coup = chess.Move(selection, case_cliquee)
                     # Promotion automatique en dame
-                    if (board.piece_at(selection) and
-                            board.piece_at(selection).piece_type == chess.PAWN and
-                            chess.square_rank(case_cliquee) in (0, 7)):
+                    piece_sel = board.piece_at(selection)
+                    if (piece_sel and piece_sel.piece_type == chess.PAWN
+                            and chess.square_rank(case_cliquee) in (0, 7)):
                         coup = chess.Move(selection, case_cliquee, promotion=chess.QUEEN)
 
                     if coup in board.legal_moves:
