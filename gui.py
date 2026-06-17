@@ -1,4 +1,5 @@
 import sys
+import threading
 import pygame
 import chess
 import engine
@@ -161,7 +162,7 @@ def choisir(ecran: pygame.Surface, titre: str, options: list[str]) -> int:
                 for i, rect in enumerate(rects):
                     if rect.collidepoint(event.pos):
                         return i + 1
-            if event.type == pygame.KEYDOWN and pygame.K_1 <= event.key <= pygame.K_3:
+            if event.type == pygame.KEYDOWN and pygame.K_1 <= event.key <= pygame.K_9:
                 choix = event.key - pygame.K_0
                 if 1 <= choix <= len(options):
                     return choix
@@ -201,6 +202,11 @@ def main() -> None:
     message = "À vous de jouer !"
     moteur_en_cours = False
 
+    # Thread moteur : calcule dans le fond pour ne pas geler pygame
+    _fil: threading.Thread | None = None
+    _resultat: list[chess.Move | None] = [None]
+    _ticks = 0   # compteur pour l'animation "réfléchit..."
+
     while True:
         # ── Événements ────────────────────────────────────────────────────────
         for event in pygame.event.get():
@@ -209,7 +215,6 @@ def main() -> None:
                 sys.exit()
 
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                # R → recommencer
                 main()
                 return
 
@@ -239,21 +244,38 @@ def main() -> None:
                         board.push(coup)
                         dernier_coup = coup
                         selection = None
-                        message = "Moteur réfléchit…"
+                        message = "Moteur réfléchit"
                         moteur_en_cours = True
+                        # Copie du plateau pour le thread : engine fait push/pop en interne,
+                        # il ne faut pas qu'il touche au board affiché par le thread principal.
+                        _resultat[0] = None
+                        board_copie = board.copy()
+                        _fil = threading.Thread(
+                            target=lambda b=board_copie: _resultat.__setitem__(
+                                0, engine.best_move(b, niveau)
+                            ),
+                            daemon=True,
+                        )
+                        _fil.start()
                     else:
                         # Re-sélectionne si on clique une autre pièce alliée
                         piece = board.piece_at(case_cliquee)
                         selection = case_cliquee if (piece and piece.color == joueur_color) else None
 
-        # ── Tour du moteur (hors boucle d'événements pour ne pas bloquer) ─────
-        if moteur_en_cours and not board.is_game_over():
-            coup_moteur = engine.best_move(board, niveau)
-            if coup_moteur:
+        # ── Réception du résultat du thread moteur ────────────────────────────
+        if moteur_en_cours and _fil is not None and not _fil.is_alive():
+            coup_moteur = _resultat[0]
+            if coup_moteur and not board.is_game_over():
                 board.push(coup_moteur)
                 dernier_coup = coup_moteur
             message = "À vous de jouer !"
             moteur_en_cours = False
+            _fil = None
+
+        # ── Animation "réfléchit..." pendant la réflexion ─────────────────────
+        if moteur_en_cours:
+            _ticks += 1
+            message = "Moteur réfléchit" + "." * ((_ticks // 15) % 4)
 
         # ── Message de fin de partie ───────────────────────────────────────────
         if board.is_game_over():
