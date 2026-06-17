@@ -63,11 +63,11 @@ Au lancement, un menu vous propose cinq niveaux :
 
 | Niveau | Nom | Stratégie |
 |--------|-----|-----------|
-| 1 | Débutant | Coups entièrement aléatoires |
-| 2 | Novice | Maximise l'avantage matériel, profondeur 2 |
-| 3 | Facile | Matériel + tables de positions, profondeur 3 |
-| 4 | Intermédiaire | + structure de pions + quiescence, ~1 s/coup |
-| 5 | Fort | + table de transposition, ~2,5 s/coup |
+| 0 | Débutant | Coups entièrement aléatoires |
+| 1 | Novice | Maximise l'avantage matériel, profondeur 2 |
+| 2 | Facile | Matériel + tables de positions, profondeur 3 |
+| 3 | Intermédiaire | + structure de pions + quiescence, ~1 s/coup |
+| 4 | Fort | + table de transposition, ~2,5 s/coup |
 
 Cliquez sur le niveau ou appuyez sur la touche **1** à **5**.
 
