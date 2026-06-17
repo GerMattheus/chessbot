@@ -12,7 +12,7 @@ def _print_board(board: chess.Board, player_color: chess.Color) -> None:
     print()
 
 
-def _get_player_move(board: chess.Board) -> chess.Move:
+def _get_player_move(board: chess.Board) -> chess.Move | None:
     """Prompt the human for a move in UCI notation until a legal one is entered."""
     while True:
         raw = input("Votre coup (ex: e2e4, ou 'quit') : ").strip().lower()
@@ -68,6 +68,8 @@ def main() -> None:
         else:
             print("Le moteur réfléchit…")
             move = engine.best_move(board, level)
+            if move is None:
+                break
             print(f"  Coup du moteur : {move.uci()}")
 
         board.push(move)
