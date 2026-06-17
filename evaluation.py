@@ -9,7 +9,7 @@ PIECE_VALUES = {
     chess.KING: 20000,
 }
 
-# Piece-square tables (from White's perspective, a1=index 0)
+# Tables de positions (du point de vue des Blancs, a1=index 0)
 # fmt: off
 _PST_PAWN = [
      0,  0,  0,  0,  0,  0,  0,  0,
@@ -84,19 +84,19 @@ _PST = {
 
 
 def _pst_score(piece_type: int, square: int, color: chess.Color) -> int:
-    """Return positional bonus for a piece on a given square (White's POV)."""
-    # Flip row for Black so index 0 stays at rank 1 for both colors
+    """Retourne le bonus positionnel d'une pièce sur une case donnée (POV Blancs)."""
+    # Miroir vertical pour les Noirs : l'index 0 reste sur la rangée 1 pour les deux couleurs
     idx = square if color == chess.WHITE else chess.square_mirror(square)
     return _PST[piece_type][idx]
 
 
 def evaluate(board: chess.Board, level: int) -> int:
     """
-    Static evaluation of *board* in centipawns from White's perspective.
+    Évaluation statique de *board* en centipions, du point de vue des Blancs.
 
-    level 1 → always 0   (random play)
-    level 2 → material only
-    level 3 → material + piece-square tables
+    niveau 1 → toujours 0   (coups aléatoires)
+    niveau 2 → matériel brut uniquement
+    niveau 3 → matériel + tables de positions
     """
     if level == 1:
         return 0

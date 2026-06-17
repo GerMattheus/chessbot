@@ -5,7 +5,7 @@ LEVELS = {1: "Débutant (aléatoire)", 2: "Intermédiaire (matériel)", 3: "Avan
 
 
 def _print_board(board: chess.Board, player_color: chess.Color) -> None:
-    """Display the board oriented toward the human player."""
+    """Affiche le plateau orienté vers le joueur humain."""
     flipped = player_color == chess.BLACK
     print()
     print(board.__str__() if not flipped else chess.Board(board.fen()).transform(chess.flip_vertical).__str__())
@@ -13,7 +13,7 @@ def _print_board(board: chess.Board, player_color: chess.Color) -> None:
 
 
 def _get_player_move(board: chess.Board) -> chess.Move | None:
-    """Prompt the human for a move in UCI notation until a legal one is entered."""
+    """Demande un coup à l'humain en notation UCI jusqu'à ce qu'un coup légal soit saisi."""
     while True:
         raw = input("Votre coup (ex: e2e4, ou 'quit') : ").strip().lower()
         if raw == "quit":
@@ -28,7 +28,7 @@ def _get_player_move(board: chess.Board) -> chess.Move | None:
 
 
 def _choose(prompt: str, options: dict) -> int:
-    """Display a numbered menu and return the chosen key."""
+    """Affiche un menu numéroté et retourne la clé choisie."""
     print(prompt)
     for k, v in options.items():
         print(f"  {k}. {v}")

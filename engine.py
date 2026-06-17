@@ -2,7 +2,7 @@ import random
 import chess
 from evaluation import evaluate
 
-# Search depth by level (in half-moves / plies)
+# Profondeur de recherche par niveau (en demi-coups / plies)
 DEPTH_BY_LEVEL = {1: 0, 2: 2, 3: 3}
 
 
@@ -14,7 +14,7 @@ def _minimax(
     maximising: bool,
     level: int,
 ) -> int:
-    """Alpha-beta pruned minimax; returns score from White's perspective."""
+    """Minimax avec élagage alpha-bêta ; retourne le score du point de vue des Blancs."""
     if depth == 0 or board.is_game_over():
         return evaluate(board, level)
 
@@ -28,7 +28,7 @@ def _minimax(
             board.pop()
             alpha = max(alpha, best)
             if alpha >= beta:
-                break  # β cut-off
+                break  # coupure β : la branche ne peut plus améliorer le max
         return best
     else:
         best = 10**9
@@ -38,19 +38,19 @@ def _minimax(
             board.pop()
             beta = min(beta, best)
             if beta <= alpha:
-                break  # α cut-off
+                break  # coupure α : la branche ne peut plus améliorer le min
         return best
 
 
 def best_move(board: chess.Board, level: int) -> chess.Move:
-    """Return the best legal move for the side to move at the given level."""
+    """Retourne le meilleur coup légal pour le camp qui doit jouer, au niveau donné."""
     moves = list(board.legal_moves)
     if not moves:
         return None
 
     depth = DEPTH_BY_LEVEL.get(level, 2)
 
-    # Level 1: pure random
+    # Niveau 1 : coup purement aléatoire, pas de recherche
     if depth == 0:
         return random.choice(moves)
 
@@ -58,7 +58,7 @@ def best_move(board: chess.Board, level: int) -> chess.Move:
     best_score = -10**9 if maximising else 10**9
     best = None
 
-    # Shuffle to break ties randomly
+    # Mélange pour départager les coups de score identique de façon aléatoire
     random.shuffle(moves)
 
     for move in moves:
