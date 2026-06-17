@@ -8,7 +8,8 @@ responsabilité unique, facilitant la montée en compétence progressive.
 
 ```
 chessbot/
-├── main.py          # Boucle de jeu et interface terminal
+├── gui.py           # Interface graphique pygame (point d'entrée jouable)
+├── main.py          # Boucle de jeu terminal (fallback sans GUI)
 ├── engine.py        # Recherche du meilleur coup (algorithme)
 ├── evaluation.py    # Estimation de la valeur d'une position
 ├── requirements.txt
@@ -85,6 +86,43 @@ métier.
 2. La boucle principale alterne coups humains (saisie UCI, ex : `e2e4`) et
    coups du moteur (appel à `engine.best_move()`).
 3. Affichage du plateau ASCII via `python-chess` après chaque coup.
+
+---
+
+---
+
+### `gui.py` — Interface graphique (pygame)
+
+**Pourquoi ?**
+`main.py` exige de connaître la notation UCI (ex: `e2e4`), ce qui n'est pas
+jouable en pratique. `gui.py` ajoute une fenêtre avec un plateau cliquable,
+sans toucher à `engine.py` ni `evaluation.py`.
+
+**Comment ?**
+Le fichier est organisé en trois couches :
+
+1. **Conversion coordonnées** (`case_vers_pixel`, `pixel_vers_case`)  
+   Traduit entre les cases `python-chess` (entiers 0–63) et les pixels pygame.
+   Le plateau est orienté selon la couleur du joueur (Blancs en bas).
+
+2. **Rendu** (`dessiner_plateau`, `dessiner_panneau`)  
+   - Cases colorées + surbrillance du dernier coup (olive) et de la sélection (jaune).  
+   - Points verts semi-transparents sur les **cases légales** de la pièce sélectionnée.  
+   - Pièces en glyphes Unicode (♔♕♖…) avec ombre pour la lisibilité.  
+   - Panneau latéral : niveau, tour, messages.
+
+3. **Boucle principale** (`main`)  
+   - Deux clics pour jouer : 1er clic = sélectionne une pièce, 2e clic = joue le coup.  
+   - **Promotion automatique en dame** (cas le plus courant).  
+   - Le coup du moteur est calculé dans la même boucle, juste après le coup humain,  
+     de façon synchrone (le rendu se fige brièvement sur "Moteur réfléchit…").  
+   - `R` permet de recommencer une partie sans relancer le programme.
+
+**Lancer la GUI :**
+```bash
+pip install pygame python-chess
+python gui.py
+```
 
 ---
 
