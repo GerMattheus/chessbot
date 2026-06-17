@@ -3,156 +3,197 @@
 ## Vue d'ensemble
 
 Moteur d'échecs modulaire en Python s'appuyant sur `python-chess` pour les règles
-et la représentation du plateau. Le projet est découpé en trois modules à
-responsabilité unique, facilitant la montée en compétence progressive.
+et la représentation du plateau. Le projet a été construit par étapes progressives,
+chaque étape ajoutant une couche sans modifier les précédentes.
 
 ```
 chessbot/
-├── gui.py           # Interface graphique pygame (point d'entrée jouable)
-├── main.py          # Boucle de jeu terminal (fallback sans GUI)
+├── gui.py           # Interface graphique pygame (point d'entrée principal)
+├── main.py          # Point d'entrée unifié → lance gui.main()
 ├── engine.py        # Recherche du meilleur coup (algorithme)
 ├── evaluation.py    # Estimation de la valeur d'une position
+├── Jouer.bat        # Lanceur Windows sans fenêtre terminal (double-clic)
 ├── requirements.txt
 └── ARCHITECTURE.md  (ce fichier)
 ```
 
 ---
 
-## Modules
+## Étapes de développement
 
-### `evaluation.py` — Évaluation statique d'une position
+### Étape 1 — Moteur de base : évaluation + Negamax (`evaluation.py`, `engine.py`)
 
-**Pourquoi ?**
-Séparer l'évaluation de la recherche permet de changer la « vue » du moteur sur
-la position sans toucher à l'algorithme de recherche. C'est aussi ici que se
-définissent les niveaux de jeu.
+**Ce qui a été fait :**
+- `evaluation.py` : fonction `evaluate(board, level)` retournant un score en
+  **centipions** (1 pion = 100 pts) du point de vue des Blancs.
 
-**Comment ?**
-La fonction centrale `evaluate(board, level)` retourne un score en **centipions**
-(1 pion = 100 pts) du point de vue des Blancs :
+  | Niveau | Évaluation |
+  |--------|------------|
+  | 1 | Toujours 0 → coups aléatoires |
+  | 2 | Décompte matériel brut |
+  | 3 | Matériel + piece-square tables (PST) |
 
-| Niveau | Fonctionnalités d'évaluation |
-|--------|------------------------------|
-| 1 | Score = 0 → coups aléatoires |
-| 2 | Décompte matériel brut |
-| 3 | Matériel + tables de positions (PST) |
-| 4 | Matériel + PST + structure de pions |
-| 5 | Identique niveau 4 (force = algorithme) |
+  Les **PST** sont des matrices 8×8 donnant un bonus/malus selon la case occupée
+  (ex : cavalier au centre = +30, cavalier en bord = −50).
 
-**Valeurs des pièces (centipions) :**
-```
-Pion=100  Cavalier=320  Fou=330  Tour=500  Dame=900  Roi=20000
-```
+  **Valeurs des pièces :**
+  ```
+  Pion=100  Cavalier=320  Fou=330  Tour=500  Dame=900  Roi=20000
+  ```
 
-Les **piece-square tables** (niveau 3+) sont des matrices 8×8 qui donnent un
-bonus/malus selon la case occupée par une pièce (ex : cavalier au centre = bonus).
+- `engine.py` : algorithme **Negamax avec élagage Alpha-Bêta** pour les niveaux 1–3.
 
-La **structure de pions** (niveau 4+) ajoute :
-- Pénalité pions doublés : -20 centipions par pion supplémentaire sur la même colonne.
-- Pénalité pions isolés  : -15 centipions par pion sans voisin sur les colonnes adjacentes.
+  ```
+  Negamax(position, profondeur, α, β)
+    └── best = max sur coups de  −Negamax(enfant, prof−1, −β, −α)
+  ```
 
----
-
-### `engine.py` — Recherche du meilleur coup
-
-**Pourquoi ?**
-Isoler la recherche permet de brancher n'importe quelle fonction d'évaluation
-sans changer le moteur de recherche lui-même.
-
-**Comment ?**
-Algorithme **Negamax avec élagage Alpha-Bêta** :
-
-```
-Negamax(position, profondeur, α, β)
-  ├── Si feuille → quiescence(α, β)   [niveaux 4-5]  ou evaluate()
-  └── best = max sur coups de  -Negamax(enfant, prof-1, -β, -α)
-```
-
-Negamax est une simplification de Minimax : le score est toujours du point
-de vue du joueur actif, donc `score_parent = -score_enfant`. Cela évite
-d'avoir deux branches max/min séparées.
-
-**Fonctionnalités cumulatives par niveau :**
-
-| Niveau | Prof. | Évaluation | Tri des coups | Quiescence | Table de transposition |
-|--------|-------|-----------|--------------|-----------|----------------------|
-| 1 | — | aucune | — | — | — |
-| 2 | 2 | matériel | — | — | — |
-| 3 | 3 | matériel + PST | — | — | — |
-| 4 | 4 | matériel + PST + structure | MVV-LVA | ✓ | — |
-| 5 | 5 | idem niveau 4 | MVV-LVA | ✓ | ✓ |
-
-**Tri des coups (MVV-LVA)** — *Most Valuable Victim, Least Valuable Attacker* :
-on examine d'abord les captures de pièces précieuses par des pièces bon marché.
-Ça maximise les coupures alpha-bêta et permet d'explorer quasi deux fois plus profond.
-
-**Quiescence search** : quand on atteint la profondeur 0, au lieu d'évaluer
-immédiatement, on continue à explorer uniquement les captures jusqu'à une
-position « calme ». Sans ça, le moteur peut croire qu'une position est bonne
-juste avant que l'adversaire prenne une pièce (effet d'horizon).
-
-**Table de transposition (TT)** : dictionnaire `{hash_zobrist → (profondeur, score, flag)}`.
-Quand une position a déjà été évaluée à une profondeur ≥ actuelle, on réutilise
-le résultat au lieu de re-chercher. Les flags indiquent si le score est exact,
-une borne inférieure (coupure bêta) ou supérieure (échec du nœud).
+  Negamax unifie Minimax : le score est toujours du point de vue du joueur actif,
+  donc `score_parent = −score_enfant`, ce qui évite deux branches max/min séparées.
 
 ---
 
-### `main.py` — Interface et boucle de jeu
+### Étape 2 — Niveaux forts 4 et 5 (`engine.py`)
 
-**Pourquoi ?**
-Point d'entrée unique qui orchestre les autres modules sans contenir de logique
-métier.
+**Ce qui a été ajouté :**
 
-**Comment ?**
-1. L'utilisateur choisit sa couleur et le niveau du moteur.
-2. La boucle principale alterne coups humains (saisie UCI, ex : `e2e4`) et
-   coups du moteur (appel à `engine.best_move()`).
-3. Affichage du plateau ASCII via `python-chess` après chaque coup.
+- **Structure de pions** dans `evaluation.py` (niveaux 4+) :
+  - Pénalité pions doublés : −20 centipions par pion supplémentaire sur la même colonne.
+  - Pénalité pions isolés  : −15 centipions par pion sans voisin sur les colonnes adjacentes.
+
+- **Tri des coups MVV-LVA** (*Most Valuable Victim, Least Valuable Attacker*) :
+  on explore d'abord les captures de pièces précieuses par des pièces bon marché.
+  Maximise les coupures alpha-bêta, permettant d'explorer quasi deux fois plus
+  profond dans le même temps.
+
+- **Quiescence search** : à la profondeur 0, on continue sur les captures (max 2 plies
+  supplémentaires) jusqu'à une position calme, pour éviter l'effet d'horizon.
+
+- **Table de transposition (TT)** (niveau 5) : `{hash_zobrist → (profondeur, score, flag)}`.
+  Réutilise les positions déjà évaluées à profondeur ≥ actuelle.
+  Flags : `exact` (valeur PV), `lower` (coupure bêta), `upper` (échec du nœud).
+
+- **Deepening itératif avec budget temps** (niveaux 4–5) :
+  ```
+  pour d = 1, 2, 3, … jusqu'à depth_max ou expiration du budget :
+      résultat = recherche_à_profondeur(d)
+      si complet → meilleur_coup = résultat
+  retourner meilleur_coup   # résultat de la dernière profondeur complète
+  ```
+  On garde uniquement le dernier résultat **complet** : un résultat interrompu
+  à mi-profondeur est biaisé (seuls certains coups ont été évalués).
+
+  Vérification du temps toutes les **2048 nœuds** (masque `& 0x7FF`) pour
+  minimiser l'overhead de `time.perf_counter()`.
+
+  | Niveau | Prof. max | Budget temps | Tri coups | Quiescence | TT |
+  |--------|-----------|-------------|-----------|-----------|-----|
+  | 4 | 4 | 1 s/coup | MVV-LVA | ✓ (2 plies) | — |
+  | 5 | 5 | 2.5 s/coup | MVV-LVA | ✓ (2 plies) | ✓ |
 
 ---
 
+### Étape 3 — Interface graphique initiale (`gui.py`)
+
+**Ce qui a été fait :**
+- Fenêtre **pygame** 800×640 avec plateau cliquable (glyphes Unicode ♔♕♖…).
+- Deux clics pour jouer : 1er clic = sélectionne, 2e clic = joue.
+- Points verts semi-transparents sur les cases légales de la pièce sélectionnée.
+- Surbrillance du dernier coup (couleur olive).
+- **Promotion automatique en dame** (cas le plus courant).
+- Panneau latéral : niveau, tour, message.
+- Touche `R` pour recommencer sans relancer le programme.
+
 ---
 
-### `gui.py` — Interface graphique (pygame)
+### Étape 4 — Moteur dans un thread séparé (`gui.py`)
 
-**Pourquoi ?**
-`main.py` exige de connaître la notation UCI (ex: `e2e4`), ce qui n'est pas
-jouable en pratique. `gui.py` ajoute une fenêtre avec un plateau cliquable,
-sans toucher à `engine.py` ni `evaluation.py`.
+**Problème résolu :**
+Le calcul du moteur bloquait la boucle pygame → la fenêtre se figeait pendant
+la réflexion.
 
-**Comment ?**
-Le fichier est organisé en trois couches :
+**Solution :**
+Le moteur tourne dans un `threading.Thread` daemon. Le thread principal pygame
+continue de gérer les événements et d'afficher une animation "réfléchit…".
+Le plateau est copié (`board.copy()`) avant d'être passé au thread pour éviter
+toute contention sur l'état partagé.
 
-1. **Conversion coordonnées** (`case_vers_pixel`, `pixel_vers_case`)  
-   Traduit entre les cases `python-chess` (entiers 0–63) et les pixels pygame.
-   Le plateau est orienté selon la couleur du joueur (Blancs en bas).
-
-2. **Rendu** (`dessiner_plateau`, `dessiner_panneau`)  
-   - Cases colorées + surbrillance du dernier coup (olive) et de la sélection (jaune).  
-   - Points verts semi-transparents sur les **cases légales** de la pièce sélectionnée.  
-   - Pièces en glyphes Unicode (♔♕♖…) avec ombre pour la lisibilité.  
-   - Panneau latéral : niveau, tour, messages.
-
-3. **Boucle principale** (`main`)  
-   - Deux clics pour jouer : 1er clic = sélectionne une pièce, 2e clic = joue le coup.  
-   - **Promotion automatique en dame** (cas le plus courant).  
-   - Le coup du moteur est calculé dans la même boucle, juste après le coup humain,  
-     de façon synchrone (le rendu se fige brièvement sur "Moteur réfléchit…").  
-   - `R` permet de recommencer une partie sans relancer le programme.
-
-**Lancer la GUI :**
-```bash
-pip install pygame python-chess
-python gui.py
+```python
+_fil = threading.Thread(
+    target=lambda b=board_copie: _resultat.__setitem__(0, engine.best_move(b, niveau)),
+    daemon=True,
+)
+_fil.start()
+# ... boucle pygame continue ...
+if not _fil.is_alive():   # résultat prêt → appliquer le coup
 ```
 
 ---
 
-## Conventions
+### Étape 5 — Optimisation des temps de réflexion (`engine.py`)
 
-- Score toujours du **point de vue des Blancs** ; le Minimax inverse selon
-  `board.turn`.
-- Centipions comme unité universelle pour faciliter les comparaisons.
-- Chaque nouvelle fonctionnalité (élagage, ouvertures, etc.) doit être
-  documentée dans ce fichier avant d'être codée.
+**Problème résolu :**
+Les budgets initiaux (niveau 4 : 3 s, niveau 5 : 7 s) rendaient le jeu trop lent.
+
+**Changements :**
+- Budget niveau 4 : 3 s → **1 s**
+- Budget niveau 5 : 7 s → **2,5 s**
+- Profondeur quiescence : 3 plies → **2 plies**
+
+Le deepening itératif garantit que le moteur retourne toujours un coup valide
+même si le budget expire en cours de route.
+
+---
+
+### Étape 6 — Refonte visuelle complète (`gui.py`)
+
+**Ce qui a été refait :**
+
+- **Palette dark mode** inspirée chess.com :
+  - Fond général `(22, 21, 18)`, cases claires `(238, 238, 210)`, cases sombres `(118, 150, 86)`.
+  - Panneau latéral `(30, 29, 26)` séparé par une ligne fine.
+
+- **Cadre et marges autour du plateau** (`MARGE = 28 px`) :
+  - Les coordonnées (a–h, 1–8) sont affichées dans cette marge, comme sur un vrai échiquier.
+
+- **Indicateurs de coups légaux améliorés** :
+  - Case vide → petit cercle noir semi-transparent au centre.
+  - Case adverse (capture) → anneau semi-transparent sur toute la case.
+
+- **Surbrillance échec** : case du roi en rouge `(200, 40, 40)` quand il est en échec.
+
+- **Pièces capturées** : affichées avec leurs glyphes dans le panneau, triées par valeur,
+  avec le total matériel `+N` affiché en vert.
+
+- **Avantage matériel** calculé en temps réel (Blancs/Noirs +N ou "Matériel égal").
+
+- **Chronomètre live** : pendant la réflexion de l'IA, le temps écoulé s'affiche et
+  s'incrémente à chaque frame.
+
+- **Menu amélioré** : fond sombre, effets de survol (highlight vert + fond plus clair)
+  à la souris.
+
+- **Premier coup automatique** : si le joueur choisit les Noirs, l'IA (Blancs) joue
+  son premier coup immédiatement sans attendre d'interaction.
+
+---
+
+### Étape 7 — Point d'entrée unifié (`main.py`, `Jouer.bat`)
+
+**Ce qui a été fait :**
+- `main.py` réduit à 4 lignes : il importe et appelle `gui.main()`.
+  Utilisable depuis d'autres projets Python avec `from gui import main; main()`.
+- `Jouer.bat` : lanceur Windows qui utilise `venv\Scripts\pythonw.exe` (pas de
+  fenêtre terminal) pour un double-clic propre depuis l'explorateur de fichiers.
+
+---
+
+## Conventions générales
+
+- Score toujours du **point de vue des Blancs** dans `evaluation.py` ;
+  negamax inverse via `sign = 1 if board.turn == WHITE else -1`.
+- **Centipions** comme unité universelle pour faciliter les comparaisons.
+- `engine.py` et `evaluation.py` n'importent pas pygame : la séparation
+  moteur / affichage est totale.
+- Toute modification de l'évaluation ou des seuils de temps doit être
+  documentée dans ce fichier.

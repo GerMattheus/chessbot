@@ -1,65 +1,69 @@
 import random
+import time
 import chess
 import chess.polyglot
 from evaluation import evaluate, PIECE_VALUES
 
-# Profondeur de recherche par niveau (en demi-coups / plies)
+# Profondeur maximale cible par niveau (en demi-coups / plies)
 DEPTH_BY_LEVEL = {1: 0, 2: 2, 3: 3, 4: 4, 5: 5}
 
+# Budget temps par coup (secondes) pour les niveaux avec deepening itératif
+_TIME_BUDGET = {4: 1.0, 5: 2.5}
+
 # Table de transposition : zobrist_hash → (profondeur, score, flag)
-# flag : 'exact' | 'lower' | 'upper'
 _tt: dict[int, tuple[int, int, str]] = {}
-_TT_MAX = 500_000   # limite mémoire (~50 Mo environ)
+_TT_MAX = 500_000
+
+# État global de la recherche (réinitialisé à chaque appel best_move)
+_time_up  = [False]
+_deadline = [0.0]
+_nodes    = [0]
 
 
-# ── Tri des coups ─────────────────────────────────────────────────────────────
+# ── Tri des coups (MVV-LVA) ───────────────────────────────────────────────────
 
 def _score_move(board: chess.Board, move: chess.Move) -> int:
-    """
-    Heuristique MVV-LVA (Most Valuable Victim – Least Valuable Attacker).
-    Les captures de pièces précieuses avec des pièces bon marché passent en premier,
-    ce qui maximise les coupures alpha-bêta et permet d'explorer plus profond.
-    """
+    """Heuristique MVV-LVA : capturer une pièce chère avec une pièce bon marché en premier."""
     s = 0
     if board.is_capture(move):
-        victime   = board.piece_at(move.to_square)
-        attaquant = board.piece_at(move.from_square)
-        if victime and attaquant:
-            s += 10 * PIECE_VALUES[victime.piece_type] - PIECE_VALUES[attaquant.piece_type]
+        victim   = board.piece_at(move.to_square)
+        attacker = board.piece_at(move.from_square)
+        if victim and attacker:
+            s += 10 * PIECE_VALUES[victim.piece_type] - PIECE_VALUES[attacker.piece_type]
     if move.promotion:
         s += PIECE_VALUES.get(move.promotion, 0)
     return s
 
 
 def _order(board: chess.Board, moves: list[chess.Move]) -> list[chess.Move]:
-    """Retourne les coups triés du plus prometteur au moins prometteur."""
     return sorted(moves, key=lambda m: _score_move(board, m), reverse=True)
 
 
-# ── Recherche de quiescence ───────────────────────────────────────────────────
+# ── Quiescence search ─────────────────────────────────────────────────────────
 
-def _quiescence(board: chess.Board, alpha: int, beta: int, level: int) -> int:
+def _quiescence(board: chess.Board, alpha: int, beta: int, level: int, qdepth: int = 2) -> int:
     """
-    Continue la recherche uniquement sur les captures jusqu'à une position calme.
-
-    Pourquoi ? Sans quiescence, le moteur peut évaluer une position juste avant
-    qu'une pièce soit prise (effet d'horizon) et croire à tort qu'elle est bonne.
-    En épuisant les captures, on obtient une évaluation fiable.
-
-    Score retourné du point de vue du joueur à qui c'est le tour (convention negamax).
+    Continue uniquement sur les captures pour éviter l'effet d'horizon.
+    qdepth limite la profondeur extra pour maîtriser le temps de calcul.
+    Score du point de vue du joueur actif (convention negamax).
     """
+    if _time_up[0]:
+        return 0
+
     sign = 1 if board.turn == chess.WHITE else -1
-    stand_pat = sign * evaluate(board, level)   # score sans jouer de coup
+    stand_pat = sign * evaluate(board, level)
 
     if stand_pat >= beta:
-        return beta         # coupure bêta : la position est déjà trop bonne pour l'adversaire
+        return beta
+    if qdepth == 0:
+        return max(alpha, stand_pat)
     alpha = max(alpha, stand_pat)
 
     captures = _order(board, [m for m in board.generate_pseudo_legal_captures()
                                if m in board.legal_moves])
     for move in captures:
         board.push(move)
-        score = -_quiescence(board, -beta, -alpha, level)
+        score = -_quiescence(board, -beta, -alpha, level, qdepth - 1)
         board.pop()
         if score >= beta:
             return beta
@@ -73,17 +77,22 @@ def _quiescence(board: chess.Board, alpha: int, beta: int, level: int) -> int:
 def _negamax(board: chess.Board, depth: int, alpha: int, beta: int,
              level: int, use_tt: bool) -> int:
     """
-    Negamax = minimax symétrique : le score est toujours du point de vue
-    du joueur actif, ce qui évite d'avoir deux branches max/min séparées.
-    Formule clé : score_parent = -negamax(enfant)
+    Negamax : score toujours du point de vue du joueur actif.
+    Formule clé : score_parent = -negamax(enfant, -β, -α).
 
-    Améliorations par niveau :
-      niveau 4 : tri des coups + quiescence à la feuille
-      niveau 5 : + table de transposition (cache les positions déjà évaluées)
+    Vérification du temps toutes les 2048 nœuds (via masque bit),
+    pour limiter l'overhead de time.perf_counter().
     """
+    _nodes[0] += 1
+    if not (_nodes[0] & 0x7FF):           # tous les 2048 nœuds
+        if time.perf_counter() >= _deadline[0]:
+            _time_up[0] = True
+    if _time_up[0]:
+        return 0                           # valeur invalide, ignorée par l'appelant
+
     alpha_orig = alpha
 
-    # ── Table de transposition (niveau 5) ────────────────────────────────────
+    # ── Table de transposition ────────────────────────────────────────────────
     zh = None
     if use_tt:
         zh = chess.polyglot.zobrist_hash(board)
@@ -101,10 +110,7 @@ def _negamax(board: chess.Board, depth: int, alpha: int, beta: int,
 
     # ── Cas terminaux ────────────────────────────────────────────────────────
     if board.is_game_over():
-        if board.is_checkmate():
-            # Plus tôt le mat, meilleur c'est ; board.ply() évite les égalités
-            return -(900_000 - board.ply())
-        return 0    # pat ou nulle
+        return -(900_000 - board.ply()) if board.is_checkmate() else 0
 
     if depth == 0:
         if level >= 4:
@@ -120,51 +126,89 @@ def _negamax(board: chess.Board, depth: int, alpha: int, beta: int,
         board.push(move)
         score = -_negamax(board, depth - 1, -beta, -alpha, level, use_tt)
         board.pop()
-        best = max(best, score)
+
+        if _time_up[0]:
+            return 0
+
+        best  = max(best, score)
         alpha = max(alpha, score)
         if alpha >= beta:
             break   # coupure bêta
 
     # ── Stockage en table de transposition ───────────────────────────────────
-    if use_tt and zh is not None and len(_tt) < _TT_MAX:
-        if best <= alpha_orig:
-            flag = 'upper'    # borne supérieure : tous les coups ont été mauvais
-        elif best >= beta:
-            flag = 'lower'    # borne inférieure : coupure bêta, valeur réelle peut être plus haute
-        else:
-            flag = 'exact'    # valeur exacte (nœud PV)
+    if use_tt and zh is not None and len(_tt) < _TT_MAX and not _time_up[0]:
+        flag = ('upper' if best <= alpha_orig else
+                'lower' if best >= beta       else 'exact')
         _tt[zh] = (depth, best, flag)
 
     return best
 
 
+# ── Recherche à une profondeur fixée ─────────────────────────────────────────
+
+def _search_root(board: chess.Board, depth: int,
+                 level: int, use_tt: bool) -> chess.Move | None:
+    """
+    Parcourt tous les coups racine à la profondeur donnée.
+    Retourne None si le budget temps est dépassé en cours de route.
+    """
+    moves = _order(board, list(board.legal_moves))
+    best_score = -10**9
+    best       = None
+
+    for move in moves:
+        if _time_up[0]:
+            return None
+        board.push(move)
+        score = -_negamax(board, depth - 1, -10**9, 10**9, level, use_tt)
+        board.pop()
+        if not _time_up[0] and score > best_score:
+            best_score, best = score, move
+
+    return best if not _time_up[0] else None
+
+
 # ── Point d'entrée public ─────────────────────────────────────────────────────
 
 def best_move(board: chess.Board, level: int) -> chess.Move | None:
-    """Retourne le meilleur coup légal pour le camp qui doit jouer, au niveau donné."""
+    """
+    Retourne le meilleur coup légal pour le camp qui doit jouer.
+
+    Niveaux 1-3 : recherche directe à profondeur fixe (toujours < 1 s).
+    Niveaux 4-5 : deepening itératif — on cherche profondeur 1, 2, 3…
+                  jusqu'à épuisement du budget temps, et on retient le
+                  résultat de la dernière profondeur complète.
+    """
     moves = list(board.legal_moves)
     if not moves:
         return None
 
     depth = DEPTH_BY_LEVEL.get(level, 2)
-
-    # Niveau 1 : coup purement aléatoire, pas de recherche
     if depth == 0:
         return random.choice(moves)
 
     use_tt = (level >= 5)
-    # Mélange initial pour départager les coups de score identique aléatoirement
-    random.shuffle(moves)
-    moves = _order(board, moves) if level >= 4 else moves
+    random.shuffle(moves)   # équilibre les égalités de score
 
-    best_score = -10**9
-    best = moves[0]
+    budget = _TIME_BUDGET.get(level, float('inf'))
+    _deadline[0] = time.perf_counter() + budget
+    _time_up[0]  = False
+    _nodes[0]    = 0
 
-    for move in moves:
-        board.push(move)
-        score = -_negamax(board, depth - 1, -10**9, 10**9, level, use_tt)
-        board.pop()
-        if score > best_score:
-            best_score, best = score, move
+    if level <= 3:
+        # Profondeur fixe, assez rapide pour ne pas nécessiter de limite
+        result = _search_root(board, depth, level, use_tt)
+        return result or random.choice(moves)
+
+    # Niveaux 4-5 : deepening itératif
+    best = moves[0]                        # coup de secours si tout échoue
+    for d in range(1, depth + 1):
+        if _time_up[0]:
+            break
+        result = _search_root(board, d, level, use_tt)
+        if result is not None:             # profondeur d complète : valide
+            best = result
+        if _time_up[0]:
+            break
 
     return best
