@@ -124,9 +124,6 @@ chessbot/
 └── ARCHITECTURE.md  # Documentation technique détaillée
 ```
 
-Pour comprendre les choix algorithmiques et l'historique de développement,
-consultez [ARCHITECTURE.md](ARCHITECTURE.md).
-
 ---
 
 ## Raccourcis clavier
